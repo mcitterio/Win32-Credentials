@@ -4,7 +4,7 @@ use strict;
 use warnings;
 
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 =head1 NAME
 
@@ -92,6 +92,14 @@ use constant CRED_PERSIST_ENTERPRISE    => 3;
 # BOOL CredReadW (LPCWSTR TargetName, DWORD Type, DWORD Flags)
 # VOID CredFree  (PVOID Buffer)
 
+# L  An unsigned long value.
+
+# Q  An unsigned quad value.
+#     (Quads are available only if your system supports 64-bit
+#     integer values and if Perl has been compiled to support
+#     those.  Raises an exception otherwise.)
+
+
 # Windows API Loaders
 my $CredWrite = Win32::API->new(
     'advapi32', 'CredWriteW', 'PI', 'I'
@@ -144,6 +152,7 @@ sub _build_credential_struct {
 	die "Blob exceeds 512 byte (limit CRED_TYPE_GENERIC)\n"
 		if $blob_size > 512;
 
+	# There is no way to test it on 32bit systems for the moment
     if ($IS64) {
         # Costruiamo la struct con Win32::API::Struct
         # Usiamo pack diretto con pointer come stringa packed
@@ -225,19 +234,20 @@ sub cred_read {
 
     # Leggi la struct dalla memoria
     # Offset CredentialBlob e CredentialBlobSize in struct 64-bit:
-    # 0:  Flags           (4)
-    # 4:  Type            (4)
-    # 8:  TargetName ptr  (8)
-    # 16: Comment ptr     (8)
-    # 24: LastWritten     (8)
-    # 32: BlobSize        (4)
-    # 36: padding         (4)
-    # 40: Blob ptr        (8)
-    # 48: Persist         (4)
-    # 52: AttributeCount  (4)
-    # 56: Attributes ptr     (8)
-    # 64: TargetAlias ptr    (8)
-    # 72: UserName ptr       (8)
+    # 0:  Flags           DWORD L  4
+    # 4:  Type            DWORD L  4
+    # 8:  TargetName ptr  PTR   Q  8
+    # 16: Comment ptr     PTR   Q  8
+    # 24: LastWritten.L   DWORD L  4
+    # 28: LastWritten.H   DWORD L  4
+    # 32: BlobSize        DWORD L  4
+    # 36: padding         DWORD L  4
+    # 40: Blob ptr        PTR   Q  8
+    # 48: Persist         DWORD L  4
+    # 52: AttributeCount  DWORD L  4
+    # 56: Attributes ptr  PTR   Q  8
+    # 64: TargetAlias ptr PTR   Q  8
+    # 72: UserName ptr    PTR   Q  8
 
     # Usa Win32::API::ReadMemory per leggere la struct
     my $struct    = Win32::API::ReadMemory($cred_ptr, 80);
