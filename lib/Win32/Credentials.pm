@@ -4,7 +4,7 @@ use strict;
 use warnings;
 
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 =head1 NAME
 
@@ -33,7 +33,7 @@ Provides a simple Perl interface to the Windows Credential Manager
 Secrets are protected by DPAPI (AES-256) tied to the current
 Windows user account.
 
-No XS compilation required — uses Win32::API.
+No XS compilation required - uses Win32::API.
 
 =head1 FUNCTIONS
 
@@ -117,12 +117,12 @@ my $CredFree = Win32::API->new(
     'advapi32', 'CredFree', 'N', 'V'
 ) or die "CredFree: $^E";
 
-#  Determina se Perl è 64-bit 
+#  Check if Perl is 64-bit 
 my $IS64 = (length(pack('P', 0)) == 8);
 
-#  Costruisce la struct CREDENTIAL in memoria 
+#  Build CREDENTIAL struct in memory 
 #
-# Layout 64-bit (tutti i pointer sono Q = 8 byte):
+# Layout 64-bit (all pointers are Q = 8 byte):
 #   Flags            DWORD   L  4
 #   Type             DWORD   L  4
 #   TargetName       PTR     Q  8
@@ -130,7 +130,7 @@ my $IS64 = (length(pack('P', 0)) == 8);
 #   LastWritten.Low  DWORD   L  4
 #   LastWritten.High DWORD   L  4
 #   CredentialBlobSz DWORD   L  4
-#   (padding)                   4   allineamento 64-bit
+#   (padding)                   4   aligning to 64-bit
 #   CredentialBlob   PTR     Q  8
 #   Persist          DWORD   L  4
 #   AttributeCount   DWORD   L  4
@@ -141,12 +141,12 @@ my $IS64 = (length(pack('P', 0)) == 8);
 sub _build_credential_struct {
     my (%args) = @_;
 
-    # Converti stringhe in UTF-16LE (Wide char Windows)
+    # Convert strings into UTF-16LE (Wide char Windows)
     my $target_w  = encode('UTF-16LE', $args{target}   . "\0");
     my $user_w    = encode('UTF-16LE', ($args{user}//'') . "\0");
     my $comment_w = encode('UTF-16LE', ($args{comment}//'Win32-Credentials') . "\0");
 
-    # Il blob è la password in bytes (UTF-16LE per compatibilità Windows)
+    # The blob is the password bytes (UTF-16LE for Windows compatibilty)
     my $blob_w    = encode('UTF-16LE', $args{secret});
     my $blob_size = length($blob_w);
 	die "Blob exceeds 512 byte (limit CRED_TYPE_GENERIC)\n"
@@ -154,33 +154,33 @@ sub _build_credential_struct {
 
 	# There is no way to test it on 32bit systems for the moment
     if ($IS64) {
-        # Costruiamo la struct con Win32::API::Struct
-        # Usiamo pack diretto con pointer come stringa packed
+        # Buuild the struct with Win32::API::Struct
+        # using pack with pointer as packed string
         my $struct = pack(
-            'L L'     .   # Flags, Type
+            'L L'     .                # Flags, Type
             ($IS64 ? 'Q Q' : 'L L') .  # TargetName, Comment (ptr)
-            'L L'     .   # LastWritten (FILETIME = 2x DWORD)
-            'L'       .   # CredentialBlobSize
-            'x4'      .   # padding 64-bit
-            ($IS64 ? 'Q' : 'L') .  # CredentialBlob (ptr)
-            'L L'     .   # Persist, AttributeCount
+            'L L'     .                # LastWritten (FILETIME = 2x DWORD)
+            'L'       .                # CredentialBlobSize
+            'x4'      .                # padding 64-bit
+            ($IS64 ? 'Q' : 'L') .      # CredentialBlob (ptr)
+            'L L'     .                # Persist, AttributeCount
             ($IS64 ? 'Q Q Q' : 'L L L'),  # Attributes, TargetAlias, UserName
             # valori:
-            0,                        # Flags
-            CRED_TYPE_GENERIC,        # Type
+            0,                         # Flags
+            CRED_TYPE_GENERIC,         # Type
             unpack('Q', pack('P', $target_w)),   # TargetName ptr
             unpack('Q', pack('P', $comment_w)),  # Comment ptr
-            0, 0,                     # LastWritten
-            $blob_size,               # CredentialBlobSize
+            0, 0,                      # LastWritten
+            $blob_size,                # CredentialBlobSize
             unpack('Q', pack('P', $blob_w)),     # CredentialBlob ptr
             CRED_PERSIST_LOCAL_MACHINE,          # Persist
-            0,                        # AttributeCount
-            0,                        # Attributes (NULL)
-            0,                        # TargetAlias (NULL)
+            0,                         # AttributeCount
+            0,                         # Attributes (NULL)
+            0,                         # TargetAlias (NULL)
             unpack('Q', pack('P', $user_w)),     # UserName ptr
         );
 
-        # Mantieni i buffer vivi nello scope
+        # Return buffers to the scope
         return ($struct, $target_w, $comment_w, $blob_w, $user_w);
     }else{
 		  die "32Bit Mode is actually unsupported\n";
@@ -201,7 +201,7 @@ sub cred_write {
 
     unless ($result) {
         my $err = Win32::GetLastError();
-        die "CredWriteW fallito, errore: $err\n";
+        die "CredWriteW Failed, error: $err\n";
     }
 
     return 1;
@@ -211,7 +211,7 @@ sub cred_write {
 sub cred_read {
     my ($target) = @_;
 
-    # Buffer per ricevere il puntatore alla struct
+    # Buffer for pointer to struct
     my $ptr_buf = "\0" x 8;
 
     my $target_w = encode('UTF-16LE', $target . "\0");
@@ -219,20 +219,20 @@ sub cred_read {
     my $result = $CredRead->Call(
         $target_w,           # TargetName (Wide)
         CRED_TYPE_GENERIC,   # Type
-        0,                   # Flags (riservato, deve essere 0)
+        0,                   # Flags (reserved, must be 0)
         $ptr_buf             # output: PCREDENTIALW*
     );
 
     unless ($result) {
         my $err = Win32::GetLastError();
-        die "CredReadW failed, errore: $err\n";
+        die "CredReadW failed, error: $err\n";
     }
 
-    # Estrai il puntatore restituito
+    # Extract the pointer
     my $cred_ptr = unpack('Q', $ptr_buf);
     die "CredReadW: Pointer NULL\n" unless $cred_ptr;
 
-    # Leggi la struct dalla memoria
+    # Read struct From Memory
     # Offset CredentialBlob e CredentialBlobSize in struct 64-bit:
     # 0:  Flags           DWORD L  4
     # 4:  Type            DWORD L  4
@@ -249,28 +249,28 @@ sub cred_read {
     # 64: TargetAlias ptr PTR   Q  8
     # 72: UserName ptr    PTR   Q  8
 
-    # Usa Win32::API::ReadMemory per leggere la struct
+    # Use Win32::API::ReadMemory to read struct
     my $struct    = Win32::API::ReadMemory($cred_ptr, 80);
 
-	# Estrai i campi che ci servono
+	# Extract fields 
     my $blob_size = unpack('L', substr($struct, 32, 4));
     my $blob_ptr  = unpack('Q', substr($struct, 40, 8));
     my $user_ptr  = unpack('Q', substr($struct, 72, 8));
 
-    # Leggi il blob (la password)
+    # Read blob (password)
     my $blob_raw = Win32::API::ReadMemory($blob_ptr, $blob_size);
     my $secret   = decode('UTF-16LE', $blob_raw);
 
-    # Leggi UserName (opzionale, stringa null-terminated UTF-16LE)
+    # Read UserName (optional, null-terminated UTF-16LE string)
     my $username = '';
     if ($user_ptr) {
-        # Leggi fino al doppio \0 (max 512 char)
+        # Read till double \0 (max 512 char)
         my $user_raw = Win32::API::ReadMemory($user_ptr, 512);
         ($username)  = ($user_raw =~ /^((?:..)*?)\x00\x00/s);
         $username    = decode('UTF-16LE', $username) if $username;
     }
 
-    # Libera memoria allocata da CredReadW
+    # Free allocated memory from CredReadW
     $CredFree->Call($cred_ptr);
 
     return wantarray ? ($secret, $username) : $secret;
